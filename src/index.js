@@ -54,16 +54,18 @@ app.post('/create_user', parser, async (req, res) => {
 
     // create the user
     const user = await User.create({ name })
-    const firstName = name.split()[0]
 
-    // stick em in a group
-    const group = await Group.create({
-      name: `${firstName}'s first roll`,
-      is_active: true,
-      per_person_limit: 24,
-      user_ids: [user.id],
-      owner_id: user.id
-    })
+    // We used to make a group here
+    // const firstName = name.split()[0]
+
+    // // stick em in a group
+    // const group = await Group.create({
+    //   name: `${firstName}'s first roll`,
+    //   is_active: true,
+    //   per_person_limit: 24,
+    //   user_ids: [user.id],
+    //   owner_id: user.id
+    // })
 
     // return the user
     const resp = {
@@ -77,12 +79,32 @@ app.post('/create_user', parser, async (req, res) => {
   }
 })
 
+app.get('/user', async (req, res) => {
+  try {
+    const name = req.query.name
+    const user = await User.findOne({where: { name }})
+    if (!user) { 
+      console.log('NO USER')
+      res.status(200).send({}) 
+    } else {
+      const u = {
+        id: user.id,
+        name: user.name
+      }
+      res.status(200).send(u)
+    }
+  } catch (error) {
+    console.error(error)
+    res.sendStatus(500)
+  }
+})
+
 app.post('/create_group', parser, async (req, res) => {
   try {
     const userId = parseInt(req.body.user_id, 10)
     const limit = req.body.limit ? parseInt(req.body.limit, 10) : 24
     const groupName = req.body.name
-    const existingGroup = getCurrentGroup(groupName)
+    const existingGroup = await getCurrentGroup(userId)
 
     if (existingGroup) {
       existingGroup.is_active = false
@@ -139,8 +161,10 @@ app.post('/join_group', parser, async (req, res) => {
 
     // find any current groups
     const currentGroup = await getCurrentGroup(userId)
-    currentGroup.is_active = false
-    await currentGroup.save()
+    if (currentGroup) {
+      currentGroup.is_active = false
+      await currentGroup.save()
+    }
 
     // find new group
     const newGroup = await Group.findByPk(groupId)
@@ -216,7 +240,6 @@ app.get('/group', async (req, res) => {
     }
     console.log(`Got group: ${group.id}`)
     const response = await makeNestedGroup(group)
-    console.log(response)
     res.status(200).send(response)
   } catch {
     console.log('Didnt work tho')
@@ -282,6 +305,8 @@ app.post('/add_photo', parser, async (req, res) => {
       }
     })
 
+    console.log('Got group:', group)
+
     // Gotta create a group if there is none mkay folks
     if (!group) {
       console.log('Took photo but no group.')
@@ -291,10 +316,27 @@ app.post('/add_photo', parser, async (req, res) => {
       group = await Group.create({
         name: groupName,
         is_active: true,
-        per_person_limit: 24,
+        per_person_limit: 12,
         user_ids: [user.id],
         owner_id: user.id
       })
+    }
+
+    // Get all the filters
+    const existingPhotos = await Photo.findAll({
+      where: {
+        groupId: group.id
+      }
+    })
+
+    const photosByMe = existingPhotos.filter(p => p.id === userId)
+
+    // If we've added our max photos, no MAS
+    if (photosByMe.length === group.per_person_limit) {
+      console.log('No more photos')
+      // TODO: send a bebtter status
+      res.sendStatus(500)
+      return
     }
 
     const photo = await Photo.create({
@@ -302,6 +344,12 @@ app.post('/add_photo', parser, async (req, res) => {
       groupId: group.id,
       userId: userId
     })
+
+    // If we just put in our last photo, we'd better end the group now
+    if (existingPhotos.length === ((group.per_person_limit * group.user_ids.length) - 1)) {
+      group.set('is_active', false)
+      await group.save()
+    }
 
     res.sendStatus(200)
     console.log('we done')
