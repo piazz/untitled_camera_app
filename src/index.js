@@ -49,7 +49,32 @@ app.get('/setup', async (req, res) => {
 })
 
 app.post('/create_user', parser, async (req, res) => {
-  
+  try {
+    const name = req.body.name
+
+    // create the user
+    const user = await User.create({ name })
+    const firstName = name.split()[0]
+
+    // stick em in a group
+    const group = await Group.create({
+      name: `${firstName}'s first roll`,
+      is_active: true,
+      per_person_limit: 24,
+      user_ids: [user.id],
+      owner_id: user.id
+    })
+
+    // return the user
+    const resp = {
+      name: user.name,
+      id: user.id
+    }
+    res.status(200).send(resp)
+  } catch (error) {
+    console.error(error)
+    res.sendStatus(500)
+  }
 })
 
 const makeGroup = (users, group, photos) => {
@@ -66,7 +91,7 @@ const makeGroup = (users, group, photos) => {
   }
 }
 
-const makeResponse = async (group) => {
+const makeNestedGroup = async (group) => {
   const photos = await Photo.findAll({ where: { groupId: group.id }})
   const users = await User.findAll({ where: {id: group.user_ids }})
   return {
@@ -86,7 +111,7 @@ app.get('/group', async (req, res) => {
   const userId = req.query.user_id
   try {
     const group = await Group.findOne({ where: { owner_id: userId, is_active: true }})
-    const response = await makeResponse(group)
+    const response = await makeNestedGroup(group)
     console.log(response)
     res.status(200).send(response)
   } catch {
@@ -100,7 +125,7 @@ app.get('/groups', async (req, res) => {
   try {
     const groups = await Group.findAll({ where: { user_ids: { [Op.contains]: [userId] }}})
     console.log({groups: groups.map(g => g.id )})
-    const response = await Promise.all(groups.map(group => makeResponse(group)))
+    const response = await Promise.all(groups.map(group => makeNestedGroup(group)))
     res.status(200).send(response)
   } catch {
     console.log('Didnt work tho')
