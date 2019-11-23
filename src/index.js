@@ -77,6 +77,36 @@ app.post('/create_user', parser, async (req, res) => {
   }
 })
 
+app.post('/join_group', parser, async (req, res) => {
+  try {
+    const groupId = parseInt(req.body.group_id, 10)
+    const userId = parseInt(req.body.user_id, 10)
+
+    // find any current groups
+    const currentGroup = await Group.findOne(
+      { 
+        where: {
+          user_ids: { [Op.contains]: [userId] },
+          is_active: true
+        }
+      }
+    )
+
+    currentGroup.is_active = false
+    await currentGroup.save()
+
+    // find new group
+    const newGroup = await Group.findByPk(groupId)
+    newGroup.set('user_ids', [...newGroup.user_ids, userId])
+    await newGroup.save()
+
+    res.sendStatus(200)
+  } catch (error) {
+    console.error(error)
+    res.sendStatus(500)
+  }
+})
+
 const makeGroup = (users, group, photos) => {
   return {
     users: users.map(u => ({ id: u.id, name: u.name })),
@@ -92,7 +122,15 @@ const makeGroup = (users, group, photos) => {
 }
 
 const makeNestedGroup = async (group) => {
-  const photos = await Photo.findAll({ where: { groupId: group.id }})
+  const photos = await Photo.findAll(
+    { where: { 
+        groupId: group.id,
+      },
+      order: [
+        ['createdAt', 'DESC']
+      ]
+    }
+  )
   const users = await User.findAll({ where: {id: group.user_ids }})
   return {
     users: users.map(u => ({ id: u.id, name: u.name })),
@@ -108,9 +146,16 @@ const makeNestedGroup = async (group) => {
 }
 
 app.get('/group', async (req, res) => {
+  console.log('Hit group')
   const userId = req.query.user_id
   try {
     const group = await Group.findOne({ where: { owner_id: userId, is_active: true }})
+    if (!group) {
+      console.log(`No group found for user ${user_id}`)
+      res.status(200).send({})
+      return
+    }
+    console.log(`Got group: ${group.id}`)
     const response = await makeNestedGroup(group)
     console.log(response)
     res.status(200).send(response)
@@ -123,7 +168,14 @@ app.get('/group', async (req, res) => {
 app.get('/groups', async (req, res) => {
   const userId = req.query.user_id
   try {
-    const groups = await Group.findAll({ where: { user_ids: { [Op.contains]: [userId] }}})
+    const groups = await Group.findAll({
+      where: { 
+        user_ids: { [Op.contains]: [userId] }
+      },
+      order: [
+        ['createdAt', 'DESC']
+      ]
+    })
     console.log({groups: groups.map(g => g.id )})
     const response = await Promise.all(groups.map(group => makeNestedGroup(group)))
     res.status(200).send(response)
@@ -133,36 +185,71 @@ app.get('/groups', async (req, res) => {
   }
 })
 
-app.post('/add_photo', parser, (req, res) => {
+const makeGroupName = (userName) => {
+  const options = [
+    `${userName}'s cute group`,
+    `${userName}'s tiny group`,
+    `${userName}'s amazing group`,
+    `${userName}'s super popular group`,
+    `${userName}'s secret group`,
+  ]
+  return options[Math.floor(Math.random() * options.length)]
+}
+
+app.post('/add_photo', parser, async (req, res) => {
   console.log('Got add_photo')
 
   const userId = parseInt(req.body.user_id, 10)
-  console.log({ userId })
-
   const encodedPhoto = `data:image/jpeg;base64,${req.body.photo}`
 
-  User.findByPk(userId).then(user => {
-    return new Promise((resolve, reject) => {
+  try {
+    const url = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload(encodedPhoto, (err, res) => {
         if (err) {
           console.log(err)
           reject(err)
         }
         const url = res.url
-        console.log({res})
-        resolve({url, user})
+        resolve(url)
       })
     })
-  }).then(({url, user}) => {
-    return Photo.create({
-      url,
-      groupId: user.groupId,
-      userId: user.id
+
+    let group = await Group.findOne({
+      where: {
+        is_active: true,
+        user_ids: {
+          [Op.contains]: [userId]
+        }
+      }
     })
-  }).then(() => {
+
+    // Gotta create a group if there is none mkay folks
+    if (!group) {
+      console.log('Took photo but no group.')
+      const user = await User.findByPk(userId)
+      const firstName = user.name.split()[0]
+      const groupName = makeGroupName(firstName)
+      group = await Group.create({
+        name: groupName,
+        is_active: true,
+        per_person_limit: 24,
+        user_ids: [user.id],
+        owner_id: user.id
+      })
+    }
+
+    const photo = await Photo.create({
+      url,
+      groupId: group.id,
+      userId: userId
+    })
+
     res.sendStatus(200)
     console.log('we done')
-  })
+  } catch (err) {
+    console.error(err)
+    res.sendStatus(500)
+  }
 })
 
 app.listen(3000, () => {
