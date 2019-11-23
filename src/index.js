@@ -77,21 +77,68 @@ app.post('/create_user', parser, async (req, res) => {
   }
 })
 
+app.post('/create_group', parser, async (req, res) => {
+  try {
+    const userId = parseInt(req.body.user_id, 10)
+    const limit = req.body.limit ? parseInt(req.body.limit, 10) : 24
+    const groupName = req.body.name
+    const existingGroup = getCurrentGroup(groupName)
+
+    if (existingGroup) {
+      existingGroup.is_active = false
+      await existingGroup.save()
+    }
+
+    const newGroup = await Group.create({
+      name: groupName,
+      is_active: true,
+      per_person_limit: limit,
+      user_ids: [userId],
+      owner_id: [userId]
+    })
+
+    res.sendStatus(200)
+
+  } catch (error) {
+    console.error(error)
+    res.sendStatus(500)
+  }
+})
+
+app.post('/set_group_name', parser, async (req, res) => {
+  try {
+    const groupId = parseInt(req.body.group_id, 10)
+    const name = req.body.name
+    const existingGroup = await Group.findByPk(groupId)
+    existingGroup.set('name', name)
+    await existingGroup.save()
+    res.sendStatus(200)
+  } catch (error) {
+    console.error(error)
+    res.sendStatus(500)
+  }
+})
+
+app.post('/end_group', parser, async (req, res) => {
+  try {
+    const groupId = parseInt(req.body.group_id, 10)
+    const existingGroup = await Group.findByPk(groupId)
+    existingGroup.set('is_active', false)
+    existingGroup.save()
+    res.sendStatus(200)
+  } catch (error) {
+    console.error(error)
+    res.sendStatus(500)
+  }
+})
+
 app.post('/join_group', parser, async (req, res) => {
   try {
     const groupId = parseInt(req.body.group_id, 10)
     const userId = parseInt(req.body.user_id, 10)
 
     // find any current groups
-    const currentGroup = await Group.findOne(
-      { 
-        where: {
-          user_ids: { [Op.contains]: [userId] },
-          is_active: true
-        }
-      }
-    )
-
+    const currentGroup = await getCurrentGroup(userId)
     currentGroup.is_active = false
     await currentGroup.save()
 
@@ -106,6 +153,18 @@ app.post('/join_group', parser, async (req, res) => {
     res.sendStatus(500)
   }
 })
+
+const getCurrentGroup = async (userId) => {
+  const currentGroup = await Group.findOne(
+    { 
+      where: {
+        user_ids: { [Op.contains]: [userId] },
+        is_active: true
+      }
+    }
+  )
+  return currentGroup
+}
 
 const makeGroup = (users, group, photos) => {
   return {
@@ -127,7 +186,7 @@ const makeNestedGroup = async (group) => {
         groupId: group.id,
       },
       order: [
-        ['createdAt', 'DESC']
+        ['createdAt', 'ASC']
       ]
     }
   )
