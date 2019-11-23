@@ -2,8 +2,6 @@
 import Sequelize, { Model } from 'sequelize'
 import sequelize from '../db/sequelize'
 
-import User from './user'
-
 class Group extends Model {}
 Group.init(
   {
