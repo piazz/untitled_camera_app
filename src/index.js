@@ -2,6 +2,7 @@ import express from 'express'
 import sequelize from './db/sequelize'
 import bodyParser from 'body-parser'
 import dotenv from 'dotenv'
+import { Op } from 'sequelize'
 
 import User from './models/user'
 import Group from './Models/group'
@@ -24,6 +25,7 @@ cloudinary.config({
 })
 
 const app = express()
+const parser = bodyParser.json({ limit: '50mb' })
 
 sequelize.authenticate().then(() => {
   console.log("Connection established successfully")
@@ -35,7 +37,76 @@ app.get('/', (req, res) => {
   res.send('Hello world')
 })
 
-const parser = bodyParser.json({ limit: '50mb' })
+app.get('/drop', async (req, res) => {
+  await dropTables()
+  res.sendStatus(200)
+})
+
+app.get('/setup', async (req, res) => {
+  await setAssociations()
+  await setupTestData()
+  res.sendStatus(200)
+})
+
+app.post('/create_user', parser, async (req, res) => {
+  
+})
+
+const makeGroup = (users, group, photos) => {
+  return {
+    users: users.map(u => ({ id: u.id, name: u.name })),
+    id: group.id,
+    name: group.name,
+    owner_id: users.filter(u => u.id === group.id)[0],
+    photos: photos.map(p => ({ id: p.id, photo_url: p.url })),
+    created_at: group.createdAt,
+    finished_at: group.finishedAt,
+    is_active: group.is_active,
+    per_person_limit: group.per_person_limit
+  }
+}
+
+const makeResponse = async (group) => {
+  const photos = await Photo.findAll({ where: { groupId: group.id }})
+  const users = await User.findAll({ where: {id: group.user_ids }})
+  return {
+    users: users.map(u => ({ id: u.id, name: u.name })),
+    id: group.id,
+    name: group.name,
+    owner_id: users.filter(u => u.id === group.id)[0],
+    photos: photos.map(p => ({ id: p.id, photo_url: p.url })),
+    created_at: group.createdAt,
+    finished_at: group.finishedAt,
+    is_active: group.is_active,
+    per_person_limit: group.per_person_limit
+  }
+}
+
+app.get('/group', async (req, res) => {
+  const userId = req.query.user_id
+  try {
+    const group = await Group.findOne({ where: { owner_id: userId, is_active: true }})
+    const response = await makeResponse(group)
+    console.log(response)
+    res.status(200).send(response)
+  } catch {
+    console.log('Didnt work tho')
+    res.sendStatus(500)
+  }
+})
+
+app.get('/groups', async (req, res) => {
+  const userId = req.query.user_id
+  try {
+    const groups = await Group.findAll({ where: { user_ids: { [Op.contains]: [userId] }}})
+    console.log({groups: groups.map(g => g.id )})
+    const response = await Promise.all(groups.map(group => makeResponse(group)))
+    res.status(200).send(response)
+  } catch {
+    console.log('Didnt work tho')
+    res.sendStatus(500)
+  }
+})
 
 app.post('/add_photo', parser, (req, res) => {
   console.log('Got add_photo')
@@ -74,7 +145,6 @@ app.listen(3000, () => {
 })
 
 const setAssociations = () => {
-  User.belongsTo(Group)
   Photo.belongsTo(User)
   Photo.belongsTo(Group)
 }
@@ -89,23 +159,40 @@ const dropTables = async () => {
 const init = async () => {
   setAssociations()
   await sequelize.sync()
-  // await dropTables()
-  await setupTestData()
 }
 
 init()
 
 const setupTestData = async () => {
-  const group1 = await Group.create({
-    name: 'My second group',
-    finished_at: Date.now(),
-    is_active: true,
-    per_person_limit: 20
-  })
+  const urls = [
+    'http://res.cloudinary.com/dlf6ppjiw/image/upload/v1574501192/d4fmgt29fr01gssapxgs.jpg',
+    'http://res.cloudinary.com/dlf6ppjiw/image/upload/v1574501875/xawmouqosv02vxq1yy0x.jpg',
+    'http://res.cloudinary.com/dlf6ppjiw/image/upload/v1574501891/pguimu99ky5zmkffznpc.jpg'
+  ]
 
   const user1 = await User.create({
-    name: 'Jason Chan',
+    name: 'Kyle Bashour',
   })
 
-  user1.setGroup(group1)
+  const user2 = await User.create({
+    name: 'Michael Piazza',
+  })
+
+  const group1 = await Group.create({
+    name: 'Kyle\'s group',
+    is_active: true,
+    per_person_limit: 20,
+    user_ids: [user1.id, user2.id],
+    owner_id: user1.id
+  })
+
+  const group2 = await Group.create({
+    name: 'Michael\'s group',
+    is_active: false,
+    per_person_limit: 20,
+    user_ids: [user1.id, user2.id],
+    owner_id: user2.id
+  })
+
+  const photos = await Promise.all(urls.map(url => Photo.create({ url, userId: user1.id, groupId: group1.id })))
 }

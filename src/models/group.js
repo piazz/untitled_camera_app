@@ -17,6 +17,12 @@ Group.init(
     },
     per_person_limit: {
       type: Sequelize.INTEGER
+    },
+    user_ids: {
+        type: Sequelize.ARRAY(Sequelize.INTEGER)
+    },
+    owner_id: {
+        type: Sequelize.INTEGER
     }
   }, {
     sequelize,
