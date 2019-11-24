@@ -5,8 +5,8 @@ import dotenv from 'dotenv'
 import { Op } from 'sequelize'
 
 import User from './models/user'
-import Group from './Models/group'
-import Photo from './Models/photo'
+import Group from './models/group'
+import Photo from './models/photo'
 import Cloudinary from 'cloudinary'
 
 dotenv.config()

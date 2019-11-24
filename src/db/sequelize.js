@@ -1,6 +1,7 @@
 import Sequelize from 'sequelize'
 
-const sequelize
+let sequelize = null
+
 if (process.env.DATABASE_URL) {
     sequelize = new Sequelize(process.env.DATABASE_URL)
     console.log('Connecting to Heroku DB')
