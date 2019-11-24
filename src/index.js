@@ -359,7 +359,10 @@ app.post('/add_photo', parser, async (req, res) => {
   }
 })
 
-app.listen(3000, () => {
+// Detect port from Heroku. Super jenky, rip this out later.
+const port = process.env.PORT || 3000
+
+app.listen(port, () => {
   console.log("I'm listening on port 3000 lol")
 })
 
